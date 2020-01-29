@@ -1,6 +1,6 @@
 #[macro_use]
 extern crate serde_derive;
-
+use futures::StreamExt;
 use kube::{
     api::{Informer, Object, RawApi, Void, WatchEvent},
     client::APIClient,
@@ -16,9 +16,10 @@ pub struct Book {
 // This is a convenience alias that describes the object we get from Kubernetes
 type KubeBook = Object<Book, Void>;
 
-fn main() {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     // Load the kubeconfig file.
-    let kubeconfig = config::load_kube_config().expect("kubeconfig failed to load");
+    let kubeconfig = config::load_kube_config().await?;
 
     // Create a new client
     let client = APIClient::new(kubeconfig);
@@ -35,13 +36,13 @@ fn main() {
     // Create our informer and start listening.
     let informer = Informer::raw(client, resource)
         .init()
-        .expect("informer init failed");
+        .await?;
     loop {
-        informer.poll().expect("informer poll failed");
+        let mut books = informer.poll().await?.boxed();
 
         // Now we just do something each time a new book event is triggered.
-        while let Some(event) = informer.pop() {
-            handle(event);
+        while let Some(event) = books.next().await {
+            handle(event?);
         }
     }
 }
